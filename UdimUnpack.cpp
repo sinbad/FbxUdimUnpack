@@ -6,10 +6,17 @@
 using namespace std;
 
 
-void FindMeshNodes(FbxNode* node)
+bool ProcessMeshNode(FbxNode* node)
+{
+	return false;
+}
+
+bool ScanNodesForMeshes(FbxNode* node)
 {
     const char* nodeName = node->GetName();
 
+	bool changes = false;
+	
     // Print the node's attributes.
     for(int i = 0; i < node->GetNodeAttributeCount(); i++)
     {
@@ -17,13 +24,16 @@ void FindMeshNodes(FbxNode* node)
     	if (attrib->GetAttributeType() == FbxNodeAttribute::eMesh)
     	{
     		printf("Found mesh node: '%s'\n", nodeName);
+    		changes = ProcessMeshNode(node);
     	}
 	    
     }
 
     // Recursively print the children.
     for(int i = 0; i < node->GetChildCount(); i++)
-        FindMeshNodes(node->GetChild(i));	
+        changes = changes || ScanNodesForMeshes(node->GetChild(i));
+
+	return changes;
 }
 
 
@@ -35,7 +45,13 @@ int main(int argc, char** argv)
 		printf("Required: input FBX file name");
         exit(-1);
 	}
+	if (argc < 3)
+	{
+		printf("Required: output FBX file name");
+        exit(-1);
+	}
 	const char* filename = argv[1];
+	const char* outfilename = argv[2];
 
 
 	// Initialize the SDK manager. This object handles memory management.
@@ -46,7 +62,7 @@ int main(int argc, char** argv)
     sdkManager->SetIOSettings(ios);
 
     // Create an importer using the SDK manager.
-    FbxImporter* importer = FbxImporter::Create(sdkManager,"");
+    FbxImporter* importer = FbxImporter::Create(sdkManager, "");
 
     // Use the first argument as the filename for the importer.
     if(!importer->Initialize(filename, -1, sdkManager->GetIOSettings())) {
@@ -67,7 +83,28 @@ int main(int argc, char** argv)
     importer->Destroy();
 
 	// parse the scene looking for meshes
-	FindMeshNodes(scene->GetRootNode());
+	const bool changed = ScanNodesForMeshes(scene->GetRootNode());
+
+	if (changed)
+	{
+	    printf("Exporting changes to %s\n", outfilename);
+	    FbxExporter* exporter = FbxExporter::Create(sdkManager, "");
+	    bool exportStatus = exporter->Initialize(outfilename, -1, sdkManager->GetIOSettings());
+		if(!exportStatus) 
+        {
+	        printf("Call to FbxExporter::Initialize() failed.\n");
+	        printf("Error returned: %s\n\n", exporter->GetStatus().GetErrorString());
+		}
+		else
+		{
+			exporter->Export(scene);
+		}
+		exporter->Destroy();
+	}
+	else
+	{
+		printf("No changes were made.");
+	}
 
 	
 	sdkManager->Destroy();
