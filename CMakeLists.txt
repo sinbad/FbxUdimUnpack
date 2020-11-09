@@ -12,7 +12,6 @@ if(WIN32)
   set(CMAKE_SUPPRESS_REGENERATION true)
 endif()
 
-
 # find the FBX SDK
 include("CMake/FindFBX.cmake")
 if (NOT FBXSDK_FOUND)
@@ -32,3 +31,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${FBXSDK_INCLUDE_DIR}
 )
 target_link_libraries(${PROJECT_NAME} ${FRAMEWORKS} optimized ${FBXSDK_LIBS} debug ${FBXSDK_LIBS_DEBUG}) 
+
+# Suppress LNK4099 (pdbs missing, FBX SDK doesn't include them)
+set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "/ignore:4099")
+
