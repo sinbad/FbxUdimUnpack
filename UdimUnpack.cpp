@@ -3,8 +3,30 @@
 
 #include "UdimUnpack.h"
 
-
 using namespace std;
+
+
+void FindMeshNodes(FbxNode* node)
+{
+    const char* nodeName = node->GetName();
+
+    // Print the node's attributes.
+    for(int i = 0; i < node->GetNodeAttributeCount(); i++)
+    {
+    	auto attrib = node->GetNodeAttributeByIndex(i);
+    	if (attrib->GetAttributeType() == FbxNodeAttribute::eMesh)
+    	{
+    		printf("Found mesh node: '%s'\n", nodeName);
+    	}
+	    
+    }
+
+    // Recursively print the children.
+    for(int i = 0; i < node->GetChildCount(); i++)
+        FindMeshNodes(node->GetChild(i));	
+}
+
+
 
 int main(int argc, char** argv)
 {
@@ -33,7 +55,21 @@ int main(int argc, char** argv)
         exit(-1);
     }
 
+
+	// Create a new scene so that it can be populated by the imported file.
+    FbxScene* scene = FbxScene::Create(sdkManager, "DummyScene");
+
+    // Import the contents of the file into the scene.
+    importer->Import(scene);
+    printf("Imported scene OK.\n");
+
+    // The file is imported, so get rid of the importer.
+    importer->Destroy();
+
+	// parse the scene looking for meshes
+	FindMeshNodes(scene->GetRootNode());
+
 	
-	
+	sdkManager->Destroy();
 	return 0;
 }
