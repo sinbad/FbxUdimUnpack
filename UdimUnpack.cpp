@@ -63,18 +63,6 @@ bool ProcessMeshNode(FbxNode* node)
 {
 	auto* mesh = node->GetMesh();
 
-    // Materials are at the NODE level, not at the mesh level (weird)
-	int matCount = node->GetMaterialCount();
-	printf("%d materials found\n", matCount);
-
-	for (int i = 0; i < matCount; ++i)
-	{
-		FbxSurfaceMaterial* mat = node->GetMaterial(i);
-		printf("Material %d: '%s'\n", i, mat->GetName());
-		
-	}
-
-
 	FbxStringList uvSetNameList;
     mesh->GetUVSetNames(uvSetNameList);
 
@@ -251,6 +239,14 @@ int main(int argc, char** argv)
 
     // The file is imported, so get rid of the importer.
     importer->Destroy();
+
+	int matCount = scene->GetMaterialCount();
+	printf("Materials found: %d\n", matCount);
+	for (int i = 0; i < matCount; ++i)
+	{
+		auto* mat = scene->GetMaterial(i);
+		printf("  %d: %s\n", i, mat->GetName());	
+	}
 
 	// parse the scene looking for meshes
 	const bool changed = ScanNodesForMeshes(scene->GetRootNode());
