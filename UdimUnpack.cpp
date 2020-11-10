@@ -8,6 +8,31 @@ using namespace std;
 
 bool ProcessMeshNode(FbxNode* node)
 {
+	auto* mesh = node->GetMesh();
+	FbxStringList uvSetNameList;
+    mesh->GetUVSetNames(uvSetNameList);
+
+	for (int i = 0; i < uvSetNameList.GetCount(); ++i)
+	{
+		const char* name = uvSetNameList.GetStringAt(i);
+        auto* elem = mesh->GetElementUV(name);
+
+        if(!elem)
+            continue;
+
+		const auto mapping = elem->GetMappingMode();
+        if(mapping != FbxGeometryElement::eByPolygonVertex &&
+           mapping != FbxGeometryElement::eByControlPoint )
+            return false;
+
+		const auto reference = elem->GetReferenceMode();
+
+		printf("UV set name found: %s Mapping mode: %s, Reference mode: %s\n", 
+			name, 
+			mapping == FbxGeometryElement::eByPolygonVertex ? "Vertex" : "Control Point",
+			reference == FbxGeometryElement::eDirect ? "Direct" : "Indexed");
+	}
+
 	return false;
 }
 
@@ -20,7 +45,7 @@ bool ScanNodesForMeshes(FbxNode* node)
     // Print the node's attributes.
     for(int i = 0; i < node->GetNodeAttributeCount(); i++)
     {
-    	auto attrib = node->GetNodeAttributeByIndex(i);
+    	auto* attrib = node->GetNodeAttributeByIndex(i);
     	if (attrib->GetAttributeType() == FbxNodeAttribute::eMesh)
     	{
     		printf("Found mesh node: '%s'\n", nodeName);
