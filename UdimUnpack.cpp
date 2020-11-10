@@ -6,6 +6,59 @@
 using namespace std;
 
 
+static const FbxDouble boundaryTolerance = 0.001;
+
+
+int CalculateUdimPart(FbxDouble min, FbxDouble max)
+{
+	// We could judge tile solely by looking at minU / minV, but boundary conditions can make that unreliable
+	// E.g. artist meant to put a vertex at U = 1.0 but actually it's at 0.999999
+	// It appears that tooling that's aware of UDIMs can prevent this but let's be safe
+	// So if close and maxU/V is over the threshold we round up.
+	int iPart = static_cast<int>(min);
+	if (static_cast<FbxDouble>(iPart+1) - min <= boundaryTolerance && 
+        max > iPart + 1)
+	{
+		// minU very close to edge while maxU is over it, looks like a small error putting it on wrong side
+		++iPart;
+	}
+
+	return iPart;
+}
+///  Calculate a UDIM tile (1001 etc) from UV range, or -1 if this isn't a UDIM (U or V range > 1)
+int CalculateUdimTile(FbxDouble minU, FbxDouble minV, FbxDouble maxU, FbxDouble maxV)
+{
+	// UDIMs are laid out like this:
+	//
+	// 1031   1032  1033  1034 ... 1040
+	// 1021   1022  1023  1024 ... 1030
+	// 1011   1012  1013  1014 ... 1020
+	// 1001   1002  1003  1004 ... 1010
+	//
+	// 1001 is U and V in (0,1)
+	// 1002 is U in (1,2), V in (0,1)
+	// 1011 is U in (0,1), V in (1,2) etc
+
+
+	if ((maxU - minU) > (1 + boundaryTolerance) ||
+        (maxV - minV) > (1 + boundaryTolerance))
+	{
+		// Not a UDIM tile if UV range is > 1
+		return -1;
+	}
+
+	int uPart = CalculateUdimPart(minU, maxU);
+	int vPart = CalculateUdimPart(minV, maxV);
+
+	if (uPart > 9)
+	{
+		printf("Error: UV (%f,%f) is out of UDIM horizontal range", minU, minV);
+		return -1;
+	}
+	
+	return 1001 + vPart * 10 + uPart;
+}
+
 bool ProcessMeshNode(FbxNode* node)
 {
 	auto* mesh = node->GetMesh();
@@ -16,7 +69,7 @@ bool ProcessMeshNode(FbxNode* node)
 
 	for (int i = 0; i < matCount; ++i)
 	{
-		auto* mat = node->GetMaterial(i);
+		FbxSurfaceMaterial* mat = node->GetMaterial(i);
 		printf("Material %d: '%s'\n", i, mat->GetName());
 		
 	}
@@ -58,7 +111,11 @@ bool ProcessMeshNode(FbxNode* node)
         {
             for(int p = 0; p < polyCount; ++p )
             {
-                printf("Poly: %d\n", p);
+            	FbxDouble minU = std::numeric_limits<FbxDouble>::max();
+            	FbxDouble minV = std::numeric_limits<FbxDouble>::max();
+            	FbxDouble maxU = std::numeric_limits<FbxDouble>::min();
+            	FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
+            	
                 const int vertsPerPoly = mesh->GetPolygonSize(p);
                 for(int v = 0; v < vertsPerPoly; ++v )
                 {
@@ -72,9 +129,15 @@ bool ProcessMeshNode(FbxNode* node)
 
                     uv = elem->GetDirectArray().GetAt(uvIndex);
 
-                	printf("UV: (%f,%f)\t(Index: %d)\n", uv.mData[0], uv.mData[1], uvIndex);
-
+                	minU = std::min(minU, uv.mData[0]);
+                	minV = std::min(minV, uv.mData[1]);
+                	maxU = std::max(maxU, uv.mData[0]);
+                	maxV = std::max(maxV, uv.mData[1]);
                 }
+
+            	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
+                printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
+            	
             }
         }
         else if (elem->GetMappingMode() == FbxGeometryElement::eByPolygonVertex)
@@ -82,8 +145,12 @@ bool ProcessMeshNode(FbxNode* node)
             int polyIndexCounter = 0;
             for( int p = 0; p < polyCount; ++p )
             {
-                printf("Poly: %d\n", p);
-                const int vertsPerPoly = mesh->GetPolygonSize(p);
+            	FbxDouble minU = std::numeric_limits<FbxDouble>::max();
+            	FbxDouble minV = std::numeric_limits<FbxDouble>::max();
+            	FbxDouble maxU = std::numeric_limits<FbxDouble>::min();
+            	FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
+
+            	const int vertsPerPoly = mesh->GetPolygonSize(p);
                 for( int v = 0; v < vertsPerPoly; ++v )
                 {
                 	if (useIndexes && polyIndexCounter >= indexCount)
@@ -96,10 +163,16 @@ bool ProcessMeshNode(FbxNode* node)
 
                     uv = elem->GetDirectArray().GetAt(uvIndex);
 
-                	printf("UV: (%f,%f)\t(Index: %d)\n", uv.mData[0], uv.mData[1], uvIndex);
+                	minU = std::min(minU, uv.mData[0]);
+                	minV = std::min(minV, uv.mData[1]);
+                	maxU = std::max(maxU, uv.mData[0]);
+                	maxV = std::max(maxV, uv.mData[1]);
 
                 	++polyIndexCounter;
                 }
+
+            	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
+                printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
             }
         }
 		
