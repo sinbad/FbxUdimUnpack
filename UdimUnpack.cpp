@@ -16,8 +16,8 @@ int CalculateUdimPart(FbxDouble min, FbxDouble max)
 	// It appears that tooling that's aware of UDIMs can prevent this but let's be safe
 	// So if close and maxU/V is over the threshold we round up.
 	int iPart = static_cast<int>(min);
-	if (static_cast<FbxDouble>(iPart+1) - min <= boundaryTolerance && 
-        max > iPart + 1)
+	if (static_cast<FbxDouble>(iPart) +1. - min <= boundaryTolerance && 
+        max > iPart + 1.)
 	{
 		// minU very close to edge while maxU is over it, looks like a small error putting it on wrong side
 		++iPart;
