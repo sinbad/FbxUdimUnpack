@@ -9,6 +9,19 @@ using namespace std;
 bool ProcessMeshNode(FbxNode* node)
 {
 	auto* mesh = node->GetMesh();
+
+    // Materials are at the NODE level, not at the mesh level (weird)
+	int matCount = node->GetMaterialCount();
+	printf("%d materials found\n", matCount);
+
+	for (int i = 0; i < matCount; ++i)
+	{
+		auto* mat = node->GetMaterial(i);
+		printf("Material %d: '%s'\n", i, mat->GetName());
+		
+	}
+
+
 	FbxStringList uvSetNameList;
     mesh->GetUVSetNames(uvSetNameList);
 
@@ -31,6 +44,65 @@ bool ProcessMeshNode(FbxNode* node)
 			name, 
 			mapping == FbxGeometryElement::eByPolygonVertex ? "Vertex" : "Control Point",
 			reference == FbxGeometryElement::eDirect ? "Direct" : "Indexed");
+
+
+
+        //index array, where holds the index referenced to the uv data
+        const bool useIndexes = elem->GetReferenceMode() != FbxGeometryElement::eDirect;
+        const int indexCount= useIndexes ? elem->GetIndexArray().GetCount() : 0;
+		
+        //iterating through the data by polygon
+        const int polyCount = mesh->GetPolygonCount();
+
+        if(elem->GetMappingMode() == FbxGeometryElement::eByControlPoint )
+        {
+            for(int p = 0; p < polyCount; ++p )
+            {
+                printf("Poly: %d\n", p);
+                const int vertsPerPoly = mesh->GetPolygonSize(p);
+                for(int v = 0; v < vertsPerPoly; ++v )
+                {
+                    FbxVector2 uv;
+
+                    //get the index of the current vertex in control points array
+                    int lPolyVertIndex = mesh->GetPolygonVertex(p, v);
+
+                    //the UV index depends on the reference mode
+                    int uvIndex = useIndexes ? elem->GetIndexArray().GetAt(lPolyVertIndex) : lPolyVertIndex;
+
+                    uv = elem->GetDirectArray().GetAt(uvIndex);
+
+                	printf("UV: (%f,%f)\t(Index: %d)\n", uv.mData[0], uv.mData[1], uvIndex);
+
+                }
+            }
+        }
+        else if (elem->GetMappingMode() == FbxGeometryElement::eByPolygonVertex)
+        {
+            int polyIndexCounter = 0;
+            for( int p = 0; p < polyCount; ++p )
+            {
+                printf("Poly: %d\n", p);
+                const int vertsPerPoly = mesh->GetPolygonSize(p);
+                for( int v = 0; v < vertsPerPoly; ++v )
+                {
+                	if (useIndexes && polyIndexCounter >= indexCount)
+                        break;
+                	
+                    FbxVector2 uv;
+
+                    //the UV index depends on the reference mode
+                    int uvIndex = useIndexes ? elem->GetIndexArray().GetAt(polyIndexCounter) : polyIndexCounter;
+
+                    uv = elem->GetDirectArray().GetAt(uvIndex);
+
+                	printf("UV: (%f,%f)\t(Index: %d)\n", uv.mData[0], uv.mData[1], uvIndex);
+
+                	++polyIndexCounter;
+                }
+            }
+        }
+		
 	}
 
 	return false;
