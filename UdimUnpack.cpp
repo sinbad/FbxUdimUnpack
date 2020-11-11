@@ -288,7 +288,6 @@ bool ProcessMeshNode(FbxNode* node)
         }
         else if (uvelem->GetMappingMode() == FbxGeometryElement::eByPolygonVertex)
         {
-            int polyIndexCounter = 0;
             for( int p = 0; p < polyCount; ++p )
             {
             	FbxDouble minU = std::numeric_limits<FbxDouble>::max();
@@ -297,24 +296,23 @@ bool ProcessMeshNode(FbxNode* node)
             	FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
 
             	const int vertsPerPoly = mesh->GetPolygonSize(p);
+            	int baseIndex = p * vertsPerPoly;
                 for( int v = 0; v < vertsPerPoly; ++v )
                 {
-                	if (useIndexes && polyIndexCounter >= indexCount)
+                	int index = baseIndex + v;
+                	if (useIndexes && index >= indexCount)
                         break;
                 	
-                    FbxVector2 uv;
-
                     //the UV index depends on the reference mode
-                    int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(polyIndexCounter) : polyIndexCounter;
+                    int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(index) : index;
 
-                    uv = uvelem->GetDirectArray().GetAt(uvIndex);
+                    FbxVector2 uv = uvelem->GetDirectArray().GetAt(uvIndex);
 
                 	minU = std::min(minU, uv.mData[0]);
                 	minV = std::min(minV, uv.mData[1]);
                 	maxU = std::max(maxU, uv.mData[0]);
                 	maxV = std::max(maxV, uv.mData[1]);
 
-                	++polyIndexCounter;
                 }
 
             	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
@@ -356,7 +354,18 @@ bool ProcessMeshNode(FbxNode* node)
             		matElem->GetIndexArray().SetAt(p, newNodeMatIdx);
             		printf("Poly %d assigned new material %s\n", p, node->GetMaterial(newNodeMatIdx)->GetName());
 
-            		// TODO: change UVs to be in 0-1 range
+            		// Now fix UVs to be within the 0-1 range on this new material
+            		for( int v = 0; v < vertsPerPoly; ++v )
+            		{
+	                	int index = baseIndex + v;
+            			if (useIndexes && index >= indexCount)
+            				break;
+            			int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(index) : index;
+            			FbxVector2 uv = uvelem->GetDirectArray().GetAt(uvIndex);
+            			uv.mData[0] -= floor(uv.mData[0]);
+            			uv.mData[1] -= floor(uv.mData[1]);
+            			uvelem->GetDirectArray().SetAt(uvIndex, uv);
+            		}
             		
             	}
             }
@@ -479,6 +488,7 @@ int main(int argc, char** argv)
 			exporter->Export(scene);
 		}
 		exporter->Destroy();
+		printf("New mesh saved OK");
 	}
 	else
 	{
