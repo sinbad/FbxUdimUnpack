@@ -2,9 +2,7 @@
 //
 
 #include "UdimUnpack.h"
-
-using namespace std;
-
+#include <string>
 
 static const FbxDouble kBoundaryTolerance = 0.001;
 static const char* kMappingModeNames[] = { "None", "By Control Point", "By Polygon Vertex", "By Polygon", "By Edge", "All Same" };
@@ -15,13 +13,25 @@ static const char* kReferenceModeNames[] = { "Direct", "Index", "Index to Direct
 
 // 2D array of udim versions of surface materials, first dimension in scene material order.
 // Second dimension is the udim materials, indexed as udim-1001
-static int udimMaterials[MAX_MATERIAL_COUNT][MAX_UDIM_INDEX] = {{-1}};
+static int udimMaterials[MAX_MATERIAL_COUNT][MAX_UDIM_INDEX];
 
+void InitUdimMaterials()
+{
+	// Would be nice to use designated initialisers
+	for (int i = 0; i < MAX_MATERIAL_COUNT; ++i)
+	{
+		for (int j = 0; j < MAX_UDIM_INDEX; ++j)
+		{
+			udimMaterials[i][j] = -1;
+		}
+	}
+}
 // Convert a scene material index to an index which references the correct udim instance of that material
-int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxScene* scene)
+int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 {
 	int udimIndex = udim - 1001;
 	int ret = udimMaterials[matSceneIndex][udimIndex];
+	auto* scene = node->GetScene();
 
 	if (ret == -1)
 	{
@@ -39,8 +49,9 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxScene* scene)
 			// We'll also take this opportunity to change the name to include 1001 for clarity
 			// since this *must* be the first time we don't have to check anything
 			auto* baseMat = scene->GetMaterial(matSceneIndex);
-			string newName(baseMat->GetName());
+			std::string newName(baseMat->GetName());
 			newName.append("_1001");
+			printf("Renaming material %s to %s\n", baseMat->GetName(), newName.c_str());
 			baseMat->SetName(newName.c_str());
 		}
 		if (udimIndex == 0)
@@ -49,8 +60,29 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxScene* scene)
 		{
 			// Clone base mat
 			// Put it in the right slot
-			// TODO
+			auto* baseMat = scene->GetMaterial(matSceneIndex);
+			FbxSurfaceMaterial* newMat = static_cast<FbxSurfaceMaterial*>(baseMat->Clone());
+			// Alter the name, will already have _1001 suffix since based on root udim
+			std::string name = newMat->GetName();
+			name.replace(name.length() - 4, 4, std::to_string(udim));
+			newMat->SetName(name.c_str());
+			// Cloning doesn't add the material to the scene, or node
+			scene->AddMaterial(newMat);
+			node->AddMaterial(newMat);
+			ret = scene->GetMaterialCount() - 1;
+			printf("Created material %s based on %s\n", newMat->GetName(), baseMat->GetName());
 		}
+		// save for future reference
+		udimMaterials[matSceneIndex][udimIndex] = ret;
+	}
+	else
+	{
+		// Make sure node references this material (may do already)
+		FbxSurfaceMaterial* mat = scene->GetMaterial(ret);
+		if (node->GetMaterialIndex(mat->GetName()) == -1)
+		{
+			node->AddMaterial(mat);
+		}		
 	}
 
 	return ret;
@@ -152,7 +184,6 @@ bool ProcessMeshNode(FbxNode* node)
 		}
 		
 	}
-
 
 	FbxStringList uvSetNameList;
     mesh->GetUVSetNames(uvSetNameList);
@@ -301,6 +332,8 @@ int main(int argc, char** argv)
 	}
 	const char* filename = argv[1];
 	const char* outfilename = argv[2];
+
+	InitUdimMaterials();
 
 	// Initialize the SDK manager. This object handles memory management.
     FbxManager* sdkManager = FbxManager::Create();
