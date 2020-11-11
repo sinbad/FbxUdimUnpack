@@ -16,6 +16,9 @@ static const char* kReferenceModeNames[] = { "Direct", "Index", "Index to Direct
 // Second dimension is the udim materials, indexed as udim-1001
 static int udimMaterials[MAX_MATERIAL_COUNT][MAX_UDIM_INDEX];
 
+// pair which maps the index of a material in a node to the index in the scene 
+typedef std::pair<int, int> NodeToSceneMaterialIndex;
+
 void InitUdimMaterials()
 {
 	// Would be nice to use designated initialisers
@@ -147,9 +150,50 @@ int CalculateUdimTile(FbxDouble minU, FbxDouble minV, FbxDouble maxU, FbxDouble 
 	return 1001 + vPart * 10 + uPart;
 }
 
+int GetSceneMaterialIndex(const FbxNode* node, int nodeMatIdx)
+{
+	FbxSurfaceMaterial* mat = node->GetMaterial(nodeMatIdx);
+	FbxScene* scene = node->GetScene();
+	// there is no GetMaterialIndex on FbxScene
+	int sceneMatCount = scene->GetMaterialCount();
+	for (int i = 0; i < sceneMatCount; ++i)
+	{
+		if (scene->GetMaterial(i) == mat)
+		{
+			return i;
+		}
+	}
+
+	printf("ERROR: unable to find node material %s in scene", mat->GetName());
+	return -1;
+}
+
+int GetSceneMaterialIndex(int nodeMatIdx, const NodeToSceneMaterialIndex* nodeToScene, int nodeToSceneCount)
+{
+	for (int i = 0; i < nodeToSceneCount; ++i)
+	{
+		if (nodeToScene[i].first == nodeMatIdx)
+			return nodeToScene[i].second;
+	}
+	printf("ERROR: unable to find index in scene for node material index %d", nodeMatIdx);
+	return -1;
+}
+int GetNodeMaterialIndex(int sceneMatIdx, const NodeToSceneMaterialIndex* nodeToScene, int nodeToSceneCount)
+{
+	for (int i = 0; i < nodeToSceneCount; ++i)
+	{
+		if (nodeToScene[i].second == sceneMatIdx)
+			return nodeToScene[i].first;
+	}
+	printf("ERROR: unable to find node material index for scene material index %d", sceneMatIdx);
+	return -1;
+}
+
 bool ProcessMeshNode(FbxNode* node)
 {
 	auto* mesh = node->GetMesh();
+	auto* scene = node->GetScene();
+	bool anyChanges = false;
 
 	// If no materials, nothing we can really do
 	if (mesh->GetElementMaterialCount() == 0)
@@ -161,37 +205,23 @@ bool ProcessMeshNode(FbxNode* node)
 	{
 		printf("WARNING: Multiple sets of material assignments on mesh '%s'; only the first will be processed\n", mesh->GetName());
 	}
+	FbxGeometryElementMaterial* matElem = mesh->GetElementMaterial(0);
+
+	// Lookup that's big enough to address all materials 
+	NodeToSceneMaterialIndex nodeToSceneMatLookup[MAX_MATERIAL_COUNT];
+	int nodeToSceneMatCount = 0; // actively used count of above
+
+	for (int i = 0; i < node->GetMaterialCount(); ++i)
+	{
+		nodeToSceneMatLookup[i].first = i;
+		nodeToSceneMatLookup[i].second = GetSceneMaterialIndex(node, i);
+	}
+	nodeToSceneMatCount = node->GetMaterialCount();
 
 	// Figure out it we're dealing with a single material across the whole mesh or per polygon
-	// We only process the first material assignment per mesh, so no dual material setups allowed
-	bool isSingleMaterial = true;
-	FbxSurfaceMaterial* singleMaterial = nullptr;
-    FbxGeometryElementMaterial* matElem = mesh->GetElementMaterial(0);
-	if(matElem->GetMappingMode() == FbxGeometryElement::eByPolygon) 
-	{
-		isSingleMaterial = false;
-
-		printf("Material is referenced by polygon\n");
-		int matIndexes = matElem->GetIndexArray().GetCount();
-		for (int i = 0; i < matIndexes; ++i)
-		{
-			 printf("Poly %d: %s\n", i, node->GetMaterial(matElem->GetIndexArray().GetAt(i))->GetName());
-		}
-	}
-	else
-	{
-		int matIndex = matElem->GetIndexArray().GetAt(0);
-		if(matIndex >= 0)
-		{
-			singleMaterial = node->GetMaterial(matIndex);
-		}
-		else
-		{
-			printf("WARNING: Skipping processing mesh '%s' because could not locate single material\n", mesh->GetName());
-			return false;
-		}
-		
-	}
+	// If it's not by polygon, that's going to have to be changed if you split UDIMs into materials
+	// But we'll wait until we see a UDIM > 1001 before doing that
+	bool matByPolygon = matElem->GetMappingMode() == FbxGeometryElement::eByPolygon;
 
 	FbxStringList uvSetNameList;
     mesh->GetUVSetNames(uvSetNameList);
@@ -215,8 +245,6 @@ bool ProcessMeshNode(FbxNode* node)
 			name, 
 			kMappingModeNames[mapping],
 			kReferenceModeNames[reference]);
-
-
 
         //index array, where holds the index referenced to the uv data
         const bool useIndexes = uvelem->GetReferenceMode() != FbxGeometryElement::eDirect;
@@ -291,12 +319,52 @@ bool ProcessMeshNode(FbxNode* node)
 
             	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
                 printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
+            	if (udim > 1001)
+            	{
+            		anyChanges = true;
+            		// OK we need to reassign this polygon to a new material
+            		if (!matByPolygon)
+            		{
+            			// Previously we've been using a global material for the whole mesh
+            			// We need to alter material assignments to be by polygon now
+            			// Init all single material index
+            			int singleMatIdx = matElem->GetIndexArray().GetAt(0);
+            			matElem->SetMappingMode(FbxGeometryElement::eByPolygon);
+            			matElem->GetIndexArray().Resize(polyCount);
+            			for (int mp = 0; mp < polyCount; ++mp)
+            			{
+            				matElem->GetIndexArray().SetAt(mp, singleMatIdx);
+            			}
+            			matByPolygon = true;
+            		}
+
+            		int nodeMatIdx = matElem->GetIndexArray().GetAt(p);
+            		int sceneMatIdx = GetSceneMaterialIndex(nodeMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
+            		int newSceneMatIdx = GetUdimMaterialIndex(sceneMatIdx, udim, node);
+            		if (node->GetMaterialCount() > nodeToSceneMatCount)
+            		{
+            			// This means we added a new material, update the mapping
+            			for (int mi = nodeToSceneMatCount; mi < node->GetMaterialCount(); ++mi)
+            			{
+            				nodeToSceneMatLookup[mi].first = mi;
+            				nodeToSceneMatLookup[mi].second = GetSceneMaterialIndex(node, mi);
+            			}
+            			nodeToSceneMatCount = node->GetMaterialCount();
+            		}
+            		int newNodeMatIdx = GetNodeMaterialIndex(newSceneMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
+            		// assign the new mat to node mat index
+            		matElem->GetIndexArray().SetAt(p, newNodeMatIdx);
+            		printf("Poly %d assigned new material %s\n", p, node->GetMaterial(newNodeMatIdx)->GetName());
+
+            		// TODO: change UVs to be in 0-1 range
+            		
+            	}
             }
         }
 		
 	}
 
-	return false;
+	return anyChanges;
 }
 
 bool ScanNodesForMeshes(FbxNode* node)
@@ -372,7 +440,7 @@ int main(int argc, char** argv)
     importer->Destroy();
 
 	int matCount = scene->GetMaterialCount();
-	printf("Materials found: %d\n", matCount);
+	printf("Original materials: %d\n", matCount);	
 	for (int i = 0; i < matCount; ++i)
 	{
 		auto* mat = scene->GetMaterial(i);
@@ -390,7 +458,15 @@ int main(int argc, char** argv)
 
 	if (changed)
 	{
-	    printf("Exporting changes to %s\n", outfilename);
+		matCount = scene->GetMaterialCount();
+		printf("New materials: %d\n", matCount);	
+		for (int i = 0; i < matCount; ++i)
+		{
+			auto* mat = scene->GetMaterial(i);
+			printf("  %d: %s\n", i, mat->GetName());	
+		}
+
+		printf("Exporting changes to %s\n", outfilename);
 	    FbxExporter* exporter = FbxExporter::Create(sdkManager, "");
 	    bool exportStatus = exporter->Initialize(outfilename, -1, sdkManager->GetIOSettings());
 		if(!exportStatus) 
