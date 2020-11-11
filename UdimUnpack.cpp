@@ -8,7 +8,8 @@ static const FbxDouble kBoundaryTolerance = 0.001;
 static const char* kMappingModeNames[] = { "None", "By Control Point", "By Polygon Vertex", "By Polygon", "By Edge", "All Same" };
 static const char* kReferenceModeNames[] = { "Direct", "Index", "Index to Direct"};
 
-#define MAX_MATERIAL_COUNT 64
+// Max materials we can handle, including once we've generated new ones for UDIMs
+#define MAX_MATERIAL_COUNT 128
 #define MAX_UDIM_INDEX 100
 
 // 2D array of udim versions of surface materials, first dimension in scene material order.
@@ -72,6 +73,12 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 			node->AddMaterial(newMat);
 			ret = scene->GetMaterialCount() - 1;
 			printf("Created material %s based on %s\n", newMat->GetName(), baseMat->GetName());
+
+			if (scene->GetMaterialCount() > MAX_MATERIAL_COUNT)
+			{
+				printf("ERROR: Creating materials for UDIMs has exceeded the number of allowed materials (%d)", MAX_MATERIAL_COUNT);
+				exit(4);
+			}
 		}
 		// save for future reference
 		udimMaterials[matSceneIndex][udimIndex] = ret;
@@ -370,6 +377,12 @@ int main(int argc, char** argv)
 	{
 		auto* mat = scene->GetMaterial(i);
 		printf("  %d: %s\n", i, mat->GetName());	
+	}
+
+	if (matCount > MAX_MATERIAL_COUNT)
+	{
+		printf("ERROR: too many materials, max allowed %d", MAX_MATERIAL_COUNT);
+		exit(3);
 	}
 
 	// parse the scene looking for meshes
