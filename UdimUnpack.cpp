@@ -45,7 +45,8 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 				return -1;
 			}
 			// First UDIM always uses the main material
-			udimMaterials[matSceneIndex][0] = baseMatIdx;
+			udimMaterials[matSceneIndex][0] = matSceneIndex;
+			baseMatIdx = matSceneIndex;
 			// We'll also take this opportunity to change the name to include 1001 for clarity
 			// since this *must* be the first time we don't have to check anything
 			auto* baseMat = scene->GetMaterial(matSceneIndex);
