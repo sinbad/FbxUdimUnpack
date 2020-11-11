@@ -3,6 +3,8 @@
 
 #include "UdimUnpack.h"
 #include <string>
+#include <regex>
+#include <sstream>
 
 static const FbxDouble kBoundaryTolerance = 0.001;
 static const char* kMappingModeNames[] = { "None", "By Control Point", "By Polygon Vertex", "By Polygon", "By Edge", "All Same" };
@@ -30,6 +32,27 @@ void InitUdimMaterials()
 		}
 	}
 }
+
+bool NameHasUdimSuffix(const char* name)
+{
+	std::regex patt (".*_U1\\d\\d\\d");
+	return std::regex_search(name, patt);
+}
+
+void ReplaceUdimSuffix(FbxSurfaceMaterial* mat, int udim)
+{
+	// this assumes the name already has the _U1xxx at the end
+	std::string name = mat->GetName();
+	name.replace(name.length() - 4, 4, std::to_string(udim));
+	mat->SetName(name.c_str());	
+}
+void AddUdimSuffix(FbxSurfaceMaterial* mat, int udim)
+{
+	// this assumes the name DOES NOT have the _U1xxx at the end
+	std::ostringstream ss;
+	ss << mat->GetName() << "_U" << udim;
+	mat->SetName(ss.str().c_str());	
+}
 // Convert a scene material index to an index which references the correct udim instance of that material
 int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 {
@@ -39,50 +62,45 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 
 	if (ret == -1)
 	{
-		int baseMatIdx = udimMaterials[matSceneIndex][0];
-		if (baseMatIdx == -1)
+		// Get the scene material, and put it in our udim 1001 slot (0)
+		if (matSceneIndex >= scene->GetMaterialCount())
 		{
-			// Get the scene material, and put it in our udim 1001 slot (0)
-			if (matSceneIndex >= scene->GetMaterialCount())
-			{
-				printf("ERROR: material index %d is out of range!", matSceneIndex);
-				return -1;
-			}
-			// First UDIM always uses the main material
-			udimMaterials[matSceneIndex][0] = matSceneIndex;
-			baseMatIdx = matSceneIndex;
-			// We'll also take this opportunity to change the name to include 1001 for clarity
-			// since this *must* be the first time we don't have to check anything
-			auto* baseMat = scene->GetMaterial(matSceneIndex);
-			std::string newName(baseMat->GetName());
-			newName.append("_1001");
-			printf("Renaming material %s to %s\n", baseMat->GetName(), newName.c_str());
-			baseMat->SetName(newName.c_str());
+			printf("ERROR: material index %d is out of range!", matSceneIndex);
+			return -1;
 		}
-		if (udimIndex == 0)
-			ret = baseMatIdx;
-		else
+		
+		// Use or Clone base mat
+		// The first time we encounter the material it might not be at 1001
+		// In fact there might not be a 1001
+		// So just look for the _U1xxx suffix		
+		auto* theMat = scene->GetMaterial(matSceneIndex);
+		if (NameHasUdimSuffix(theMat->GetName()))
 		{
-			// Clone base mat
-			// Put it in the right slot
-			auto* baseMat = scene->GetMaterial(matSceneIndex);
-			FbxSurfaceMaterial* newMat = static_cast<FbxSurfaceMaterial*>(baseMat->Clone());
-			// Alter the name, will already have _1001 suffix since based on root udim
-			std::string name = newMat->GetName();
-			name.replace(name.length() - 4, 4, std::to_string(udim));
-			newMat->SetName(name.c_str());
+			// OK we already used this in another UDIM, so clone it
+			FbxSurfaceMaterial* newMat = static_cast<FbxSurfaceMaterial*>(theMat->Clone());
+			ReplaceUdimSuffix(newMat, udim);
 			// Cloning doesn't add the material to the scene, or node
 			scene->AddMaterial(newMat);
 			node->AddMaterial(newMat);
 			ret = scene->GetMaterialCount() - 1;
-			printf("Created material %s based on %s\n", newMat->GetName(), baseMat->GetName());
-
-			if (scene->GetMaterialCount() > MAX_MATERIAL_COUNT)
-			{
-				printf("ERROR: Creating materials for UDIMs has exceeded the number of allowed materials (%d)", MAX_MATERIAL_COUNT);
-				exit(4);
-			}
+			printf("Created material %s based on %s\n", newMat->GetName(), theMat->GetName());
+			theMat = newMat;
 		}
+		else
+		{
+			// First use of this base material
+			// Use this material in place but change its name
+			AddUdimSuffix(theMat, udim);
+			ret = matSceneIndex;
+			printf("First UDIM material renamed to %s\n", theMat->GetName());
+		}
+
+		if (scene->GetMaterialCount() > MAX_MATERIAL_COUNT)
+		{
+			printf("ERROR: Creating materials for UDIMs has exceeded the number of allowed materials (%d)", MAX_MATERIAL_COUNT);
+			exit(4);
+		}
+
 		// save for future reference
 		udimMaterials[matSceneIndex][udimIndex] = ret;
 	}
@@ -241,10 +259,10 @@ bool ProcessMeshNode(FbxNode* node)
 
 		const auto reference = uvelem->GetReferenceMode();
 
-		printf("UV set name found: %s Mapping mode: %s, Reference mode: %s\n", 
-			name, 
-			kMappingModeNames[mapping],
-			kReferenceModeNames[reference]);
+		//printf("UV set name found: %s Mapping mode: %s, Reference mode: %s\n", 
+		//	name, 
+		//	kMappingModeNames[mapping],
+		//	kReferenceModeNames[reference]);
 
         //index array, where holds the index referenced to the uv data
         const bool useIndexes = uvelem->GetReferenceMode() != FbxGeometryElement::eDirect;
@@ -282,7 +300,7 @@ bool ProcessMeshNode(FbxNode* node)
                 }
 
             	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
-                printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
+                //printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
             	
             }
         }
@@ -316,7 +334,7 @@ bool ProcessMeshNode(FbxNode* node)
                 }
 
             	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
-                printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
+                //printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
             	if (udim > 1001)
             	{
             		anyChanges = true;
@@ -335,29 +353,39 @@ bool ProcessMeshNode(FbxNode* node)
             			}
             			matByPolygon = true;
             		}
+            	}
 
-            		int nodeMatIdx = matElem->GetIndexArray().GetAt(p);
-            		int sceneMatIdx = GetSceneMaterialIndex(nodeMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
-            		int newSceneMatIdx = GetUdimMaterialIndex(sceneMatIdx, udim, node);
-            		if (node->GetMaterialCount() > nodeToSceneMatCount)
+            	// Even for 1001 we'll do this mapping step to ensure our metadata is updated
+            	// But no new materials will be created
+
+            	int nodeMatIdx = matElem->GetIndexArray().GetAt(p);
+            	int sceneMatIdx = GetSceneMaterialIndex(nodeMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
+            	int newSceneMatIdx = GetUdimMaterialIndex(sceneMatIdx, udim, node);
+            	if (node->GetMaterialCount() > nodeToSceneMatCount)
+            	{
+            		// This means we added a new material, update the mapping
+            		for (int mi = nodeToSceneMatCount; mi < node->GetMaterialCount(); ++mi)
             		{
-            			// This means we added a new material, update the mapping
-            			for (int mi = nodeToSceneMatCount; mi < node->GetMaterialCount(); ++mi)
-            			{
-            				nodeToSceneMatLookup[mi].first = mi;
-            				nodeToSceneMatLookup[mi].second = GetSceneMaterialIndex(node, mi);
-            			}
-            			nodeToSceneMatCount = node->GetMaterialCount();
+            			nodeToSceneMatLookup[mi].first = mi;
+            			nodeToSceneMatLookup[mi].second = GetSceneMaterialIndex(node, mi);
             		}
+            		nodeToSceneMatCount = node->GetMaterialCount();
+            	}
+
+            	if (newSceneMatIdx != sceneMatIdx)
+            	{
             		int newNodeMatIdx = GetNodeMaterialIndex(newSceneMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
             		// assign the new mat to node mat index
             		matElem->GetIndexArray().SetAt(p, newNodeMatIdx);
-            		printf("Poly %d assigned new material %s\n", p, node->GetMaterial(newNodeMatIdx)->GetName());
+            		//printf("Poly %d assigned new material %s\n", p, node->GetMaterial(newNodeMatIdx)->GetName());
+            	}
 
-            		// Now fix UVs to be within the 0-1 range on this new material
+            	if (udim > 1001)
+            	{
+            		// Fix UVs to be within the 0-1 range on this new material
             		for( int v = 0; v < vertsPerPoly; ++v )
             		{
-	                	int index = baseIndex + v;
+            			int index = baseIndex + v;
             			if (useIndexes && index >= indexCount)
             				break;
             			int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(index) : index;
@@ -366,7 +394,6 @@ bool ProcessMeshNode(FbxNode* node)
             			uv.mData[1] -= floor(uv.mData[1]);
             			uvelem->GetDirectArray().SetAt(uvIndex, uv);
             		}
-            		
             	}
             }
         }
