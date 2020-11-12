@@ -19,6 +19,31 @@ function Write-Usage {
     Write-Output "  -help      : Print this help"
 }
 
+# Find Unpack tool
+# Simplify platform checks for Powershell < 6
+if (-not $PSVersionTable.Platform) {
+    # This is Windows-only powershell
+    $global:IsWindows = $true
+}
+
+
+$exeSuffix = ""
+if ($IsWindows) {
+    $exeSuffix = ".exe"
+}
+
+$UnpackExe = "UdimUnpack$exeSuffix"
+# Check we can call UdimUnpack
+if (-not (Get-Command $UnpackExe -ErrorAction SilentlyContinue)) {
+    # if not on path, try local version
+    $UnpackExe = Join-Path $PSScriptRoot $UnpackExe
+    if (-not (Get-Command $UnpackExe -ErrorAction SilentlyContinue)) {
+        Write-Output "ERROR: Cannot find UdimUnpack tool on PATH or in script dir"
+        Exit 5
+    }
+}
+
+
 function UnpackSingle {
     [CmdletBinding()]
     param (
@@ -34,7 +59,13 @@ function UnpackSingle {
         }
     
         Write-Verbose "Running: UdimUnpack '$source' '$dest'"
-        UdimUnpack "$source" "$dest"
+        $argList = [System.Collections.ArrayList]@()
+        # always output something in output dir
+        $argList.Add("--always") > $null
+        $argList.Add($source) > $null
+        $argList.Add($dest) > $null
+
+        Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow
 }
 
 function UnpackDir {
@@ -99,14 +130,6 @@ if (-not $destdir) {
 if (-not (Test-Path $sourcedir -PathType Container)) {
     Write-Output "ERROR: sourcedir $sourcedir is invalid"
     Exit 1
-}
-
-# Check we can call UdimUnpack
-try {
-    UdimUnpack --help > $null
-} catch {
-    Write-Output "ERROR: UdimUnpack is not on the PATH"
-    Exit 3
 }
 
 # Scan existing contents looking for anything out of date
