@@ -78,7 +78,6 @@ function UnpackDir {
     Get-ChildItem $sourcedir -Filter *.fbx | ForEach-Object {
         $infile = $_.FullName
         $outfile = Join-Path $destdir $_.Name
-        $unpack = $true
         if (Test-Path $outfile -PathType Leaf) {
             # check datetime
             $intime =  $_.LastWriteTime
@@ -86,13 +85,14 @@ function UnpackDir {
             if ($intime -le $outtime) {
                 # Up to date
                 Write-Verbose "$outfile is up to date"
-                $unpack = $false
+                # DO NOT use "continue" in a ForEach-Object, it's not a for!
+                # Continue will actually break out of the whole program
+                return
             }
         }
 
-        if ($unpack) {
-            UnpackSingle $infile $outfile
-        }
+        # If we got here outfile is either missing or out of date
+        UnpackSingle $infile $outfile
     }   
     
 }
