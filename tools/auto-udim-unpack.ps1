@@ -19,6 +19,24 @@ function Write-Usage {
     Write-Output "  -help      : Print this help"
 }
 
+function UnpackSingle {
+    [CmdletBinding()]
+    param (
+        [string] $source,
+        [string] $dest
+    )
+
+        # Make sure destination exists
+        $destdir = Split-Path $dest -Parent
+        if (-not (Test-Path $destdir -PathType Container)) {
+            Write-Verbose "Creating directory $destdir"
+            New-Item -ItemType Directory -Path $destdir -Force > $null
+        }
+    
+        Write-Verbose "Running: UdimUnpack '$source' '$dest'"
+        UdimUnpack "$source" "$dest"
+}
+
 function UnpackDir {
     [CmdletBinding()]
     param (
@@ -40,15 +58,8 @@ function UnpackDir {
             }
         }
 
-        # Make sure destination exists
-        if (-not (Test-Path $destdir -PathType Container)) {
-            Write-Verbose "Creating directory $destdir"
-            New-Item -ItemType Directory -Path $destdir -Force > $null
-        }
-    
         # If we got here outfile is either missing or out of date
-        Write-Output "Running: UdimUnpack '$infile' '$outfile'"
-        UdimUnpack "$infile" "$outfile"
+        UnpackSingle $infile $outfile
     }   
     
 }
