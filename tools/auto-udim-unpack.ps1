@@ -19,7 +19,7 @@ function Write-Usage {
     Write-Output "  -help      : Print this help"
 }
 
-function UnpackAll {
+function UnpackDir {
     [CmdletBinding()]
     param (
         [string] $sourcedir,
@@ -39,13 +39,32 @@ function UnpackAll {
                 continue
             }
         }
+
+        # Make sure destination exists
+        if (-not (Test-Path $destdir -PathType Container)) {
+            Write-Verbose "Creating directory $destdir"
+            New-Item -ItemType Directory -Path $destdir -Force > $null
+        }
     
         # If we got here outfile is either missing or out of date
         Write-Output "Running: UdimUnpack '$infile' '$outfile'"
         UdimUnpack "$infile" "$outfile"
+    }   
+    
+}
+
+function UnpackRecurse {
+    [CmdletBinding()]
+    param (
+        [string] $sourcedir,
+        [string] $destdir
+    )
+
+    UnpackDir $sourcedir $destdir
+
+    Get-ChildItem $sourcedir -Directory | ForEach-Object {
+        UnpackRecurse $_.FullName (Join-Path $destdir $_.Name)
     }
-    
-    
 }
 
 $ErrorActionPreference = "Stop"
@@ -70,10 +89,6 @@ if (-not (Test-Path $sourcedir -PathType Container)) {
     Write-Output "ERROR: sourcedir $sourcedir is invalid"
     Exit 1
 }
-if (-not (Test-Path $destdir -PathType Container)) {
-    Write-Output "WARNING: creating destination dir $destdir"
-    New-Item -ItemType Directory -Path $destdir -Force > $null
-}
 
 # Check we can call UdimUnpack
 try {
@@ -84,7 +99,7 @@ try {
 }
 
 # Scan existing contents looking for anything out of date
-UnpackAll $sourcedir $destdir
+UnpackRecurse $sourcedir $destdir
 
 if ($watch) {
     # Now set up a file watcher
