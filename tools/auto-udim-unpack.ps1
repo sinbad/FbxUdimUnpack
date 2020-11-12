@@ -48,24 +48,38 @@ function UnpackSingle {
     [CmdletBinding()]
     param (
         [string] $source,
-        [string] $dest
+        [string] $dest,
+        [switch] $checkTimestamp = $false
     )
 
-        # Make sure destination exists
-        $destdir = Split-Path $dest -Parent
-        if (-not (Test-Path $destdir -PathType Container)) {
-            Write-Verbose "Creating directory $destdir"
-            New-Item -ItemType Directory -Path $destdir -Force > $null
-        }
-    
-        Write-Verbose "Running: UdimUnpack '$source' '$dest'"
-        $argList = [System.Collections.ArrayList]@()
-        # always output something in output dir
-        $argList.Add("--always") > $null
-        $argList.Add($source) > $null
-        $argList.Add($dest) > $null
+    # Make sure destination exists
+    $destdir = Split-Path $dest -Parent
+    if (-not (Test-Path $destdir -PathType Container)) {
+        Write-Verbose "Creating directory $destdir"
+        New-Item -ItemType Directory -Path $destdir -Force > $null
+    }
 
-        Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow
+    if ($checkTimestamp -and
+        (Test-Path $dest -ItemType Leaf)) {
+
+        $srctime =  (Get-ItemProperty $source -name LastWriteTime).LastWriteTime
+        $desttime =  (Get-ItemProperty $dest -name LastWriteTime).LastWriteTime
+        if ($desttime -ge $srctime) {
+            # Up to date
+            Write-Verbose "$outfile is up to date"
+            return
+        }
+    }
+
+
+    Write-Verbose "Running: UdimUnpack '$source' '$dest'"
+    $argList = [System.Collections.ArrayList]@()
+    # always output something in output dir
+    $argList.Add("--always") > $null
+    $argList.Add($source) > $null
+    $argList.Add($dest) > $null
+
+    Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow
 }
 
 function UnpackDir {
@@ -142,17 +156,21 @@ if ($watch) {
     $watcher = New-Object IO.FileSystemWatcher $sourcedir, *.fbx -Property @{IncludeSubdirectories = $true; NotifyFilter = [IO.NotifyFilters]'FileName, LastWrite'} 
 
     Register-ObjectEvent $watcher Created -SourceIdentifier FileCreated -Action { 
-        $name = $Event.SourceEventArgs.Name 
-        $changeType = $Event.SourceEventArgs.ChangeType 
-        $timeStamp = $Event.TimeGenerated 
-        Write-Host "The file '$name' was $changeType at $timeStamp" -fore green 
+        $filename = $Event.SourceEventArgs.Name
+        $infile = Join-Path $sourcedir $filename
+        $outfile = Join-Path $destdir $filename
+        Write-Host "Processing new file: $filename"
+        # Check the timestamps anyway to protect against duplicate events
+        UnpackSingle $infile $outfile -checkTimestamp:$true
     } > $null
          
     Register-ObjectEvent $watcher Changed -SourceIdentifier FileChanged -Action { 
-        $name = $Event.SourceEventArgs.Name 
-        $changeType = $Event.SourceEventArgs.ChangeType 
-        $timeStamp = $Event.TimeGenerated 
-        Write-Host "The file '$name' was $changeType at $timeStamp" -fore white 
+        $filename = $Event.SourceEventArgs.Name
+        $infile = Join-Path $sourcedir $filename
+        $outfile = Join-Path $destdir $filename
+        Write-Host "Processing change: $filename"
+        # Check the timestamps anyway to protect against duplicate events
+        UnpackSingle $infile $outfile -checkTimestamp:$true
     } > $null
 
     Write-Output "Monitoring $sourcedir"
@@ -164,7 +182,7 @@ if ($watch) {
             $key = [system.console]::readkey($true)
             if (($key.modifiers -band [consolemodifiers]"control") -and ($key.key -eq "C"))
             {
-                Write-Verbose "Exiting..."
+                Write-Output "Shutting Down..."
                 break
             }
         } else {
