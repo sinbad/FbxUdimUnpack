@@ -14,7 +14,7 @@ function Write-Usage {
     Write-Output " "
     Write-Output "  sourcedir  : Folder to monitor for FBX files"
     Write-Output "  destdir    : Folder to write converted FBX files"
-    Write-Output "  -watch     : Instead of just checking folders once, keep running and monitor"
+    #Write-Output "  -watch     : Instead of just checking folders once, keep running and monitor"
     Write-Output "  -verbose   : Verbose mode"
     Write-Output "  -help      : Print this help"
 }
@@ -151,6 +151,9 @@ if (-not (Test-Path $sourcedir -PathType Container)) {
 # Scan existing contents looking for anything out of date
 UnpackRecurse $sourcedir $destdir
 
+# I've deprecated this -watch option because it seems to just not work randomly
+# Sometimes it'll work great but other time mysteriously stop, so removed from the
+# docs for now. Just use it as a periodic converter
 if ($watch) {
     # Now set up a file watcher
     $watcher = New-Object IO.FileSystemWatcher $sourcedir, *.fbx -Property @{IncludeSubdirectories = $true; NotifyFilter = [IO.NotifyFilters]'FileName, LastWrite'} 
