@@ -65,7 +65,7 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 		// Get the scene material, and put it in our udim 1001 slot (0)
 		if (matSceneIndex >= scene->GetMaterialCount())
 		{
-			printf("ERROR: material index %d is out of range!", matSceneIndex);
+			printf("ERROR: material index %d is out of range!\n", matSceneIndex);
 			return -1;
 		}
 		
@@ -97,7 +97,7 @@ int GetUdimMaterialIndex(int matSceneIndex, int udim, FbxNode* node)
 
 		if (scene->GetMaterialCount() > MAX_MATERIAL_COUNT)
 		{
-			printf("ERROR: Creating materials for UDIMs has exceeded the number of allowed materials (%d)", MAX_MATERIAL_COUNT);
+			printf("ERROR: Creating materials for UDIMs has exceeded the number of allowed materials (%d)\n", MAX_MATERIAL_COUNT);
 			exit(4);
 		}
 
@@ -161,7 +161,7 @@ int CalculateUdimTile(FbxDouble minU, FbxDouble minV, FbxDouble maxU, FbxDouble 
 
 	if (uPart > 9)
 	{
-		printf("Error: UV (%f,%f) is out of UDIM horizontal range", minU, minV);
+		printf("Error: UV (%f,%f) is out of UDIM horizontal range\n", minU, minV);
 		return -1;
 	}
 	
@@ -182,7 +182,7 @@ int GetSceneMaterialIndex(const FbxNode* node, int nodeMatIdx)
 		}
 	}
 
-	printf("ERROR: unable to find node material %s in scene", mat->GetName());
+	printf("ERROR: unable to find node material %s in scene\n", mat->GetName());
 	return -1;
 }
 
@@ -193,7 +193,7 @@ int GetSceneMaterialIndex(int nodeMatIdx, const NodeToSceneMaterialIndex* nodeTo
 		if (nodeToScene[i].first == nodeMatIdx)
 			return nodeToScene[i].second;
 	}
-	printf("ERROR: unable to find index in scene for node material index %d", nodeMatIdx);
+	printf("ERROR: unable to find index in scene for node material index %d\n", nodeMatIdx);
 	return -1;
 }
 int GetNodeMaterialIndex(int sceneMatIdx, const NodeToSceneMaterialIndex* nodeToScene, int nodeToSceneCount)
@@ -203,7 +203,7 @@ int GetNodeMaterialIndex(int sceneMatIdx, const NodeToSceneMaterialIndex* nodeTo
 		if (nodeToScene[i].second == sceneMatIdx)
 			return nodeToScene[i].first;
 	}
-	printf("ERROR: unable to find node material index for scene material index %d", sceneMatIdx);
+	printf("ERROR: unable to find node material index for scene material index %d\n", sceneMatIdx);
 	return -1;
 }
 
@@ -461,7 +461,7 @@ int main(int argc, char** argv)
 
 	if (matCount > MAX_MATERIAL_COUNT)
 	{
-		printf("ERROR: too many materials, max allowed %d", MAX_MATERIAL_COUNT);
+		printf("ERROR: too many materials, max allowed %d\n", MAX_MATERIAL_COUNT);
 		exit(3);
 	}
 
@@ -491,11 +491,11 @@ int main(int argc, char** argv)
 			exporter->Export(scene);
 		}
 		exporter->Destroy();
-		printf("New mesh saved OK");
+		printf("New mesh saved OK\n");
 	}
 	else
 	{
-		printf("No changes were made.");
+		printf("No changes were made.\n");
 	}
 
 	
