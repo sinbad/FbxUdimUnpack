@@ -406,20 +406,94 @@ bool ScanNodesForMeshes(FbxNode* node)
 
 
 
+struct Opts
+{
+	const char* inFilename;
+	const char* outFilename;
+	bool writeAlways;
+	bool help;
+
+
+	Opts()
+		: inFilename(nullptr),
+		  outFilename(nullptr),
+		  writeAlways(false),
+		  help(false)
+	{
+	}
+};
+
+Opts parseOpts(int argc, char** argv)
+{
+	Opts opts;
+	// Yeah I could use a fancy options lib but pfft
+	for (int i = 1; i < argc; ++i)
+	{
+		if (argv[i][0] == '-')
+		{
+			if (strcmp(argv[i], "-h") || strcmp(argv[i], "--help"))
+				opts.help = true;
+			else if (strcmp(argv[i], "-a") || strcmp(argv[i], "--always"))
+				opts.writeAlways = true;
+			else
+				printf("WARNING: ignoring unknown argument '%s'\n", argv[i]);			
+		}
+		else
+		{
+			if (!opts.inFilename)
+				opts.inFilename = argv[i];
+			else if (!opts.outFilename)
+				opts.outFilename = argv[i];
+			else
+				printf("WARNING: ignoring extra argument '%s'\n", argv[i]);			
+		}
+	}
+	return opts;	
+}
+
+void printUsage(bool withHeader)
+{
+	if (withHeader)
+		printf("UdimUnpack converts an FBX file using combined UDIM UVs to separate materials per UDIM\n\n");
+	
+	printf("Usage:\n");			
+	printf("  UdimUnpack [options] <infilename.fbx> <outfilename.fbx>\n\n");			
+	printf("Options:\n");
+	printf("  -a, --always : Always write output file even if there were no changes needed\n");			
+	printf("  --help       : Display this help\n\n");			
+	
+}
+
 int main(int argc, char** argv)
 {
-	if (argc < 2)
+	const Opts opts = parseOpts(argc, argv);
+
+	if (opts.help)
 	{
-		printf("Required: input FBX file name");
+		printUsage(true);
+		exit(0);
+	}
+	
+	if (!opts.inFilename)
+	{
+		printf("Required: input FBX file name\n");
+		printUsage(false);
         exit(-1);
 	}
-	if (argc < 3)
+	if (!opts.outFilename)
 	{
-		printf("Required: output FBX file name");
+		printf("Required: output FBX file name\n");
+		printUsage(false);
         exit(-1);
 	}
-	const char* filename = argv[1];
-	const char* outfilename = argv[2];
+
+	struct stat st;
+	if (stat(opts.inFilename, &st) != 0)
+	{
+		printf("Input file %s not found\n", opts.inFilename);
+		exit(-1);		
+	}
+	
 
 	InitUdimMaterials();
 
@@ -434,7 +508,7 @@ int main(int argc, char** argv)
     FbxImporter* importer = FbxImporter::Create(sdkManager, "");
 
     // Use the first argument as the filename for the importer.
-    if(!importer->Initialize(filename, -1, sdkManager->GetIOSettings())) {
+    if(!importer->Initialize(opts.inFilename, -1, sdkManager->GetIOSettings())) {
         printf("Call to FbxImporter::Initialize() failed.\n");
         printf("Error returned: %s\n\n", importer->GetStatus().GetErrorString());
         exit(-1);
@@ -468,19 +542,27 @@ int main(int argc, char** argv)
 	// parse the scene looking for meshes
 	const bool changed = ScanNodesForMeshes(scene->GetRootNode());
 
-	if (changed)
+	if (changed || opts.writeAlways)
 	{
-		matCount = scene->GetMaterialCount();
-		printf("New materials: %d\n", matCount);	
-		for (int i = 0; i < matCount; ++i)
+		if (changed)
 		{
-			auto* mat = scene->GetMaterial(i);
-			printf("  %d: %s\n", i, mat->GetName());	
+			matCount = scene->GetMaterialCount();
+			printf("New materials: %d\n", matCount);	
+			for (int i = 0; i < matCount; ++i)
+			{
+				auto* mat = scene->GetMaterial(i);
+				printf("  %d: %s\n", i, mat->GetName());	
+			}
 		}
+		else
+		{
+			printf("No changes needed, but writing output anyway as requested.");			
+		}
+		
 
-		printf("Exporting changes to %s\n", outfilename);
+		printf("Exporting changes to %s\n", opts.outFilename);
 	    FbxExporter* exporter = FbxExporter::Create(sdkManager, "");
-	    bool exportStatus = exporter->Initialize(outfilename, -1, sdkManager->GetIOSettings());
+	    bool exportStatus = exporter->Initialize(opts.outFilename, -1, sdkManager->GetIOSettings());
 		if(!exportStatus) 
         {
 	        printf("Call to FbxExporter::Initialize() failed.\n");
