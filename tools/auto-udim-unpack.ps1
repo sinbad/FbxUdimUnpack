@@ -139,6 +139,42 @@ UnpackRecurse $sourcedir $destdir
 
 if ($watch) {
     # Now set up a file watcher
-    # TODO
+    $watcher = New-Object IO.FileSystemWatcher $sourcedir, *.fbx -Property @{IncludeSubdirectories = $true; NotifyFilter = [IO.NotifyFilters]'FileName, LastWrite'} 
+
+    Register-ObjectEvent $watcher Created -SourceIdentifier FileCreated -Action { 
+        $name = $Event.SourceEventArgs.Name 
+        $changeType = $Event.SourceEventArgs.ChangeType 
+        $timeStamp = $Event.TimeGenerated 
+        Write-Host "The file '$name' was $changeType at $timeStamp" -fore green 
+    } > $null
+         
+    Register-ObjectEvent $watcher Changed -SourceIdentifier FileChanged -Action { 
+        $name = $Event.SourceEventArgs.Name 
+        $changeType = $Event.SourceEventArgs.ChangeType 
+        $timeStamp = $Event.TimeGenerated 
+        Write-Host "The file '$name' was $changeType at $timeStamp" -fore white 
+    } > $null
+
+    Write-Output "Monitoring $sourcedir"
+    Write-Output "Press Ctrl+C to exit"
+    [console]::TreatControlCAsInput = $true
+    while ($true) {        
+        if ([console]::KeyAvailable)
+        {
+            $key = [system.console]::readkey($true)
+            if (($key.modifiers -band [consolemodifiers]"control") -and ($key.key -eq "C"))
+            {
+                Write-Verbose "Exiting..."
+                break
+            }
+        } else {
+            Start-Sleep 1
+        }
+    }
+
+    Unregister-Event FileCreated
+    Unregister-Event FileChanged
+
+
 
 }
