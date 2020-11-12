@@ -431,9 +431,9 @@ Opts parseOpts(int argc, char** argv)
 	{
 		if (argv[i][0] == '-')
 		{
-			if (strcmp(argv[i], "-h") || strcmp(argv[i], "--help"))
+			if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
 				opts.help = true;
-			else if (strcmp(argv[i], "-a") || strcmp(argv[i], "--always"))
+			else if (!strcmp(argv[i], "-a") || !strcmp(argv[i], "--always"))
 				opts.writeAlways = true;
 			else
 				printf("WARNING: ignoring unknown argument '%s'\n", argv[i]);			
