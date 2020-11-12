@@ -76,10 +76,10 @@ function UnpackSingle {
     $argList = [System.Collections.ArrayList]@()
     # always output something in output dir
     $argList.Add("--always") > $null
-    $argList.Add($source) > $null
-    $argList.Add($dest) > $null
+    $argList.Add("`"$source`"") > $null
+    $argList.Add("`"$dest`"") > $null
 
-    Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow
+    Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow > $null
 }
 
 function UnpackDir {
