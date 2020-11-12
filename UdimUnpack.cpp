@@ -210,7 +210,6 @@ int GetNodeMaterialIndex(int sceneMatIdx, const NodeToSceneMaterialIndex* nodeTo
 bool ProcessMeshNode(FbxNode* node)
 {
 	auto* mesh = node->GetMesh();
-	auto* scene = node->GetScene();
 	bool anyChanges = false;
 
 	// If no materials, nothing we can really do
@@ -227,14 +226,12 @@ bool ProcessMeshNode(FbxNode* node)
 
 	// Lookup that's big enough to address all materials 
 	NodeToSceneMaterialIndex nodeToSceneMatLookup[MAX_MATERIAL_COUNT];
-	int nodeToSceneMatCount = 0; // actively used count of above
-
 	for (int i = 0; i < node->GetMaterialCount(); ++i)
 	{
 		nodeToSceneMatLookup[i].first = i;
 		nodeToSceneMatLookup[i].second = GetSceneMaterialIndex(node, i);
 	}
-	nodeToSceneMatCount = node->GetMaterialCount();
+	int nodeToSceneMatCount = node->GetMaterialCount();
 
 	// Figure out it we're dealing with a single material across the whole mesh or per polygon
 	// If it's not by polygon, that's going to have to be changed if you split UDIMs into materials
@@ -249,11 +246,17 @@ bool ProcessMeshNode(FbxNode* node)
 		const char* name = uvSetNameList.GetStringAt(i);
 		auto* uvelem = mesh->GetElementUV(name);
 
-        if(!uvelem)
+        if (!uvelem)
             continue;
 
+		if (uvelem->GetMappingMode() != FbxGeometryElement::eByControlPoint &&
+			uvelem->GetMappingMode() != FbxGeometryElement::eByPolygonVertex)
+		{
+			continue;
+		}
+
 		const auto mapping = uvelem->GetMappingMode();
-        if(mapping != FbxGeometryElement::eByPolygonVertex &&
+        if (mapping != FbxGeometryElement::eByPolygonVertex &&
            mapping != FbxGeometryElement::eByControlPoint )
             return false;
 
@@ -265,135 +268,108 @@ bool ProcessMeshNode(FbxNode* node)
 		//	kReferenceModeNames[reference]);
 
         //index array, where holds the index referenced to the uv data
-        const bool useIndexes = uvelem->GetReferenceMode() != FbxGeometryElement::eDirect;
+        const bool useIndexes = reference != FbxGeometryElement::eDirect;
         const int indexCount= useIndexes ? uvelem->GetIndexArray().GetCount() : 0;
 		
         //iterating through the data by polygon
         const int polyCount = mesh->GetPolygonCount();
 
-        if(uvelem->GetMappingMode() == FbxGeometryElement::eByControlPoint )
+        for( int p = 0; p < polyCount; ++p )
         {
-            for(int p = 0; p < polyCount; ++p )
+            FbxDouble minU = std::numeric_limits<FbxDouble>::max();
+            FbxDouble minV = std::numeric_limits<FbxDouble>::max();
+            FbxDouble maxU = std::numeric_limits<FbxDouble>::min();
+            FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
+
+            const int vertsPerPoly = mesh->GetPolygonSize(p);
+            const int baseIndex = p * vertsPerPoly;
+            for( int v = 0; v < vertsPerPoly; ++v )
             {
-            	FbxDouble minU = std::numeric_limits<FbxDouble>::max();
-            	FbxDouble minV = std::numeric_limits<FbxDouble>::max();
-            	FbxDouble maxU = std::numeric_limits<FbxDouble>::min();
-            	FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
-            	
-                const int vertsPerPoly = mesh->GetPolygonSize(p);
-                for(int v = 0; v < vertsPerPoly; ++v )
+            	int polyVert;
+
+                //get the index of the current vertex in control points array
+                if (uvelem->GetMappingMode() == FbxGeometryElement::eByControlPoint )
                 {
-                    FbxVector2 uv;
-
-                    //get the index of the current vertex in control points array
-                    int lPolyVertIndex = mesh->GetPolygonVertex(p, v);
-
-                    //the UV index depends on the reference mode
-                    int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(lPolyVertIndex) : lPolyVertIndex;
-
-                    uv = uvelem->GetDirectArray().GetAt(uvIndex);
-
-                	minU = std::min(minU, uv.mData[0]);
-                	minV = std::min(minV, uv.mData[1]);
-                	maxU = std::max(maxU, uv.mData[0]);
-                	maxV = std::max(maxV, uv.mData[1]);
+                	polyVert = mesh->GetPolygonVertex(p, v);
                 }
+                else // (uvelem->GetMappingMode() == FbxGeometryElement::eByPolygonVertex)
+                {
+                	polyVert = baseIndex + v;
+                	if (useIndexes && polyVert >= indexCount)
+                		break;	
+                }
+            	//the UV index depends on the reference mode
+                const int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(polyVert) : polyVert;
 
-            	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
-                //printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
-            	
+                FbxVector2 uv = uvelem->GetDirectArray().GetAt(uvIndex);
+
+                minU = std::min(minU, uv.mData[0]);
+                minV = std::min(minV, uv.mData[1]);
+                maxU = std::max(maxU, uv.mData[0]);
+                maxV = std::max(maxV, uv.mData[1]);
+
             }
-        }
-        else if (uvelem->GetMappingMode() == FbxGeometryElement::eByPolygonVertex)
-        {
-            for( int p = 0; p < polyCount; ++p )
+
+            const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
+            //printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
+            if (udim > 1001)
             {
-            	FbxDouble minU = std::numeric_limits<FbxDouble>::max();
-            	FbxDouble minV = std::numeric_limits<FbxDouble>::max();
-            	FbxDouble maxU = std::numeric_limits<FbxDouble>::min();
-            	FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
-
-            	const int vertsPerPoly = mesh->GetPolygonSize(p);
-            	int baseIndex = p * vertsPerPoly;
-                for( int v = 0; v < vertsPerPoly; ++v )
-                {
-                	int index = baseIndex + v;
-                	if (useIndexes && index >= indexCount)
-                        break;
-                	
-                    //the UV index depends on the reference mode
-                    int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(index) : index;
-
-                    FbxVector2 uv = uvelem->GetDirectArray().GetAt(uvIndex);
-
-                	minU = std::min(minU, uv.mData[0]);
-                	minV = std::min(minV, uv.mData[1]);
-                	maxU = std::max(maxU, uv.mData[0]);
-                	maxV = std::max(maxV, uv.mData[1]);
-
-                }
-
-            	const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
-                //printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
-            	if (udim > 1001)
+            	anyChanges = true;
+            	// OK we need to reassign this polygon to a new material
+            	if (!matByPolygon)
             	{
-            		anyChanges = true;
-            		// OK we need to reassign this polygon to a new material
-            		if (!matByPolygon)
+            		// Previously we've been using a global material for the whole mesh
+            		// We need to alter material assignments to be by polygon now
+            		// Init all single material index
+            		int singleMatIdx = matElem->GetIndexArray().GetAt(0);
+            		matElem->SetMappingMode(FbxGeometryElement::eByPolygon);
+            		matElem->GetIndexArray().Resize(polyCount);
+            		for (int mp = 0; mp < polyCount; ++mp)
             		{
-            			// Previously we've been using a global material for the whole mesh
-            			// We need to alter material assignments to be by polygon now
-            			// Init all single material index
-            			int singleMatIdx = matElem->GetIndexArray().GetAt(0);
-            			matElem->SetMappingMode(FbxGeometryElement::eByPolygon);
-            			matElem->GetIndexArray().Resize(polyCount);
-            			for (int mp = 0; mp < polyCount; ++mp)
-            			{
-            				matElem->GetIndexArray().SetAt(mp, singleMatIdx);
-            			}
-            			matByPolygon = true;
+            			matElem->GetIndexArray().SetAt(mp, singleMatIdx);
             		}
+            		matByPolygon = true;
             	}
+            }
 
-            	// Even for 1001 we'll do this mapping step to ensure our metadata is updated
-            	// But no new materials will be created
+            // Even for 1001 we'll do this mapping step to ensure our metadata is updated
+            // But no new materials will be created
 
-            	int nodeMatIdx = matElem->GetIndexArray().GetAt(p);
-            	int sceneMatIdx = GetSceneMaterialIndex(nodeMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
-            	int newSceneMatIdx = GetUdimMaterialIndex(sceneMatIdx, udim, node);
-            	if (node->GetMaterialCount() > nodeToSceneMatCount)
+            int nodeMatIdx = matElem->GetIndexArray().GetAt(p);
+            int sceneMatIdx = GetSceneMaterialIndex(nodeMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
+            int newSceneMatIdx = GetUdimMaterialIndex(sceneMatIdx, udim, node);
+            if (node->GetMaterialCount() > nodeToSceneMatCount)
+            {
+            	// This means we added a new material, update the mapping
+            	for (int mi = nodeToSceneMatCount; mi < node->GetMaterialCount(); ++mi)
             	{
-            		// This means we added a new material, update the mapping
-            		for (int mi = nodeToSceneMatCount; mi < node->GetMaterialCount(); ++mi)
-            		{
-            			nodeToSceneMatLookup[mi].first = mi;
-            			nodeToSceneMatLookup[mi].second = GetSceneMaterialIndex(node, mi);
-            		}
-            		nodeToSceneMatCount = node->GetMaterialCount();
+            		nodeToSceneMatLookup[mi].first = mi;
+            		nodeToSceneMatLookup[mi].second = GetSceneMaterialIndex(node, mi);
             	}
+            	nodeToSceneMatCount = node->GetMaterialCount();
+            }
 
-            	if (newSceneMatIdx != sceneMatIdx)
-            	{
-            		int newNodeMatIdx = GetNodeMaterialIndex(newSceneMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
-            		// assign the new mat to node mat index
-            		matElem->GetIndexArray().SetAt(p, newNodeMatIdx);
-            		//printf("Poly %d assigned new material %s\n", p, node->GetMaterial(newNodeMatIdx)->GetName());
-            	}
+            if (newSceneMatIdx != sceneMatIdx)
+            {
+            	int newNodeMatIdx = GetNodeMaterialIndex(newSceneMatIdx, nodeToSceneMatLookup, nodeToSceneMatCount);
+            	// assign the new mat to node mat index
+            	matElem->GetIndexArray().SetAt(p, newNodeMatIdx);
+            	//printf("Poly %d assigned new material %s\n", p, node->GetMaterial(newNodeMatIdx)->GetName());
+            }
 
-            	if (udim > 1001)
+            if (udim > 1001)
+            {
+            	// Fix UVs to be within the 0-1 range on this new material
+            	for( int v = 0; v < vertsPerPoly; ++v )
             	{
-            		// Fix UVs to be within the 0-1 range on this new material
-            		for( int v = 0; v < vertsPerPoly; ++v )
-            		{
-            			int index = baseIndex + v;
-            			if (useIndexes && index >= indexCount)
-            				break;
-            			int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(index) : index;
-            			FbxVector2 uv = uvelem->GetDirectArray().GetAt(uvIndex);
-            			uv.mData[0] -= floor(uv.mData[0]);
-            			uv.mData[1] -= floor(uv.mData[1]);
-            			uvelem->GetDirectArray().SetAt(uvIndex, uv);
-            		}
+            		int index = baseIndex + v;
+            		if (useIndexes && index >= indexCount)
+            			break;
+            		int uvIndex = useIndexes ? uvelem->GetIndexArray().GetAt(index) : index;
+            		FbxVector2 uv = uvelem->GetDirectArray().GetAt(uvIndex);
+            		uv.mData[0] -= floor(uv.mData[0]);
+            		uv.mData[1] -= floor(uv.mData[1]);
+            		uvelem->GetDirectArray().SetAt(uvIndex, uv);
             	}
             }
         }
