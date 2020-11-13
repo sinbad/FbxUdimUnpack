@@ -1,4 +1,4 @@
-# Simple tool to monitor a directory and automatically run udimunpack on changed files
+# Simple tool to scan a source / dest dir and run udimunpack where needed
 [CmdletBinding()] # Fail on unknown args
 param (
     [string]$sourcedir,
@@ -14,6 +14,7 @@ function Write-Usage {
     Write-Output " "
     Write-Output "  sourcedir  : Folder to monitor for FBX files"
     Write-Output "  destdir    : Folder to write converted FBX files"
+    # Watch isn't working reliably, hide for now
     #Write-Output "  -watch     : Instead of just checking folders once, keep running and monitor"
     Write-Output "  -verbose   : Verbose mode"
     Write-Output "  -help      : Print this help"
