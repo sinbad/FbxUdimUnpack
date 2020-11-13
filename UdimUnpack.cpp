@@ -273,7 +273,7 @@ bool ProcessMeshNode(FbxNode* node)
 		
         //iterating through the data by polygon
         const int polyCount = mesh->GetPolygonCount();
-
+		int baseIndex = 0;
         for( int p = 0; p < polyCount; ++p )
         {
             FbxDouble minU = std::numeric_limits<FbxDouble>::max();
@@ -282,7 +282,6 @@ bool ProcessMeshNode(FbxNode* node)
             FbxDouble maxV = std::numeric_limits<FbxDouble>::min();
 
             const int vertsPerPoly = mesh->GetPolygonSize(p);
-            const int baseIndex = p * vertsPerPoly;
             for( int v = 0; v < vertsPerPoly; ++v )
             {
             	int polyVert;
@@ -309,9 +308,12 @@ bool ProcessMeshNode(FbxNode* node)
                 maxV = std::max(maxV, uv.mData[1]);
 
             }
+        	baseIndex += vertsPerPoly;
 
             const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
-            //printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
+        	if (udim == -1)
+        		continue;
+       		//printf("Poly %d UV range: (%f,%f)-(%f,%f) UDIM: %d\n", p, minU, minV, maxU, maxV, udim);
             if (udim > 1001)
             {
             	anyChanges = true;
