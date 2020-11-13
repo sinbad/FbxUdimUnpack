@@ -308,7 +308,6 @@ bool ProcessMeshNode(FbxNode* node)
                 maxV = std::max(maxV, uv.mData[1]);
 
             }
-        	baseIndex += vertsPerPoly;
 
             const int udim = CalculateUdimTile(minU, minV, maxU, maxV);
         	if (udim == -1)
@@ -374,6 +373,9 @@ bool ProcessMeshNode(FbxNode* node)
             		uvelem->GetDirectArray().SetAt(uvIndex, uv);
             	}
             }
+
+        	baseIndex += vertsPerPoly;
+
         }
 		
 	}
