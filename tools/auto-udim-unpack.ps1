@@ -80,7 +80,11 @@ function UnpackSingle {
     $argList.Add("`"$source`"") > $null
     $argList.Add("`"$dest`"") > $null
 
-    Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow > $null
+    $proc = Start-Process $UnpackExe $argList -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        throw "UdimUnpack failed!"
+    }
+
 }
 
 function UnpackDir {
